@@ -6,8 +6,10 @@ bool flagGoertzel = false;
 bool flagSinal = false;
 byte vetor[150];
 byte indiceAtual = 0;
-byte tecla = 0;
+char tecla = '0';
 bool senhaCorreta = false;
+byte estado = 0;
+int tempo10 = 0;
 
 // Portas
 char portaSinal = A0;
@@ -56,37 +58,58 @@ void TaskPrincipal(void *pvParameters) {
 
   for (;;)
   {
-    if(senhaCorreta) { // Senha correta
-      switch(tecla) {
-        case 2:
-          // Ligar lâmpada
-          break;
-        case 3:
-          // Desligar lâmpada
-          break;
-        case 4:
-          // Acionar o relé
-          break;
-        case 5:
-          // Desligar o relé
-          break;
-        case 6:
-          // Armar alarme
-          break;
-        case 7:
-          // Desarmar alarme
-          break;
-        case 8:
-          // Ligar sirene
-          break;
-        case 9:
-          //Desligar sirene
-          break;
-        default:
-          break; 
+    if(tecla == '0') {
+      if(estado != 0) {
+        tempo10++;
+  
+        if(tempo10 == 50) {
+          estado = 0;
+          tempo10 = 0;
+        }
+      }
+    } else {
+      tempo10 = 0;
+      if(estado == 0) {
+        estado = tecla == '#' ? 1 : 4;
+      } else if(estado == 1) {
+        estado = tecla == '4' ? 2 : 4;
+      } else if(estado == 2) {
+        estado = tecla == '2' ? 3 : 4;
+      } else {
+        if(estado == 3) {
+          switch(tecla) {
+            case '2':
+              // Ligar lâmpada
+              break;
+            case '3':
+              // Desligar lâmpada
+              break;
+            case '4':
+              // Acionar o relé
+              break;
+            case '5':
+              // Desligar o relé
+              break;
+            case '6':
+              // Armar alarme
+              break;
+            case '7':
+              // Desarmar alarme
+              break;
+            case '8':
+              // Ligar sirene
+              break;
+            case '9':
+              //Desligar sirene
+              break;
+            default:
+              break; 
+          }
+        }
       }
     }
-    
+ 
+    tecla = '0';
     vTaskDelay(200/portTICK_PERIOD_MS); // Tarefa instanciada a cada 200 mseg
   }
 }
@@ -255,7 +278,7 @@ void TaskGoertzel(void *pvParameters) {
       long listaColuna[3] = {p5, p6, p7};
       
       long maiorLinhaIndice = 0;
-      int i;
+      byte i;
       for(i = 1; i < 4; i++) {
         if(listaLinha[i] > listaLinha[maiorLinhaIndice])
           maiorLinhaIndice = i;
@@ -285,7 +308,7 @@ void TaskLerChave(void *pvParameters) {
 
 // Tarefa de leitura do sinal DTMF
 void LerSinalDTMF() {
-  int sinal = analogRead(portaSinal);
+  byte sinal = (byte) (analogRead(portaSinal) / 4);
 
   if(flagSinal) {
     if(indiceAtual < 150) {
