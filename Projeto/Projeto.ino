@@ -12,8 +12,13 @@ bool senhaCorreta = false;
 // Portas
 char portaSinal = A0;
 
-// =============================== GOERTZEL
-
+// =============================== TECLADO
+char teclado[4][3] = {
+  {'1', '2', '3'},
+  {'4', '5', '6'},
+  {'7', '8', '9'},
+  {'*', '0', '#'}
+};
 
 // Define as tarefas
 void TaskPrincipal(void *pvParameters);
@@ -26,9 +31,7 @@ SemaphoreHandle_t mtxSerial;
 void setup() {
   // Interrupções do Timer 1 a cada 278 useg -> T/2 de 1,8KHz
   Timer1.initialize(125);
-  Timer1.attachInterrupt(LerSinal);
-  // Interrupção externa da Chave1, rotina AcessoCPD, borda de descida
-  attachInterrupt(digitalPinToInterrupt(Chave1),AcessoCPD,FALLING);
+  Timer1.attachInterrupt(LerSinalDTMF);
 
   // Cria as tarefas do sistema
   xTaskCreate(TaskPrincipal,(const portCHAR *) "",128,NULL,1,NULL); // Máquina de estado (SWITCH CASE)
@@ -57,7 +60,7 @@ void TaskPrincipal(void *pvParameters) {
       switch(tecla) {
         case 2:
           // Ligar lâmpada
-          break;W
+          break;
         case 3:
           // Desligar lâmpada
           break;
@@ -246,11 +249,30 @@ void TaskGoertzel(void *pvParameters) {
       l = long(v72);
       m = long(c7)*k/128;
       long p7 = k*k + l*l - m*l;
+
+      // Pegar os maiores
+      long listaLinha[4] = {p1, p2, p3, p4};
+      long listaColuna[3] = {p5, p6, p7};
+      
+      long maiorLinhaIndice = 0;
+      int i;
+      for(i = 1; i < 4; i++) {
+        if(listaLinha[i] > listaLinha[maiorLinhaIndice])
+          maiorLinhaIndice = i;
+      }
+
+      long maiorColunaIndice = 0;
+      for(i = 1; i < 3; i++) {
+        if(listaColuna[i] > listaColuna[maiorColunaIndice])
+          maiorColunaIndice = i;
+      }
+
+      tecla = teclado[maiorLinhaIndice][maiorColunaIndice];
+      flagGoertzel = false;
     }
     vTaskDelay(200/portTICK_PERIOD_MS); // Tarefa instanciada a cada 200 mseg
   }
 }
-
 
 void TaskLerChave(void *pvParameters) {
   (void) pvParameters;
@@ -261,14 +283,17 @@ void TaskLerChave(void *pvParameters) {
   }
 }
 
-
-void LerSinal() {
+// Tarefa de leitura do sinal DTMF
+void LerSinalDTMF() {
   int sinal = analogRead(portaSinal);
 
   if(flagSinal) {
-    if(vetor[indiceAtual] < 150) {
+    if(indiceAtual < 150) {
       vetor[indiceAtual] = sinal;
       indiceAtual++;
+
+      if(indiceAtual == 150)
+        flagGoertzel = true;
     } else {
       if(!flagGoertzel) {
         flagGoertzel = true;
