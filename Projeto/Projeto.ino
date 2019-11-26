@@ -10,9 +10,20 @@ char tecla = '0';
 bool senhaCorreta = false;
 byte estado = 0;
 int tempo10 = 0;
+bool alarme = false;
+
 
 // Portas
-char portaSinal = A0;
+char portaSinal = 'A0';
+char portaTemperatura = 'A1';
+
+byte portaRele = 13;
+byte sirene = 8;
+
+//chaves
+
+byte chaveJanela = 9;
+byte chavePorta = 10;
 
 // =============================== TECLADO
 char teclado[4][3] = {
@@ -21,6 +32,46 @@ char teclado[4][3] = {
   {'7', '8', '9'},
   {'*', '0', '#'}
 };
+
+// Coeficientes do Algoritmo de Goertzel para cada uma das
+// 7 frequências do sinal DTMF, com uma
+// frequência de amostragem fs = 8000Hz
+byte c1 = 219; // 2*cos(2*pi*697/fs)*128
+byte c2 = 211; // 2*cos(2*pi*770/fs)*128
+byte c3 = 201; // 2*cos(2*pi*852/fs)*128
+byte c4 = 189; // 2*cos(2*pi*941/fs)*128
+byte c5 = 149; // 2*cos(2*pi*1209/fs)*128
+byte c6 = 128; // 2*cos(2*pi*1336/fs)*128
+byte c7 = 102; // 2*cos(2*pi*1477/fs)*128
+
+// Variáveis das iterações
+int v10; //v(i) p/ f1 = 697Hz
+int v11; //v(i-1) p/ f1 = 697Hz
+int v12; //v(i-2) p/ f1 = 697Hz
+
+int v20; //v(i) p/ f2 = 770Hz
+int v21; //v(i-1) p/ f2 = 770Hz
+int v22; //v(i-2) p/ f2 = 770Hz
+
+int v30; //v(i) p/ f3 = 852Hz
+int v31; //v(i-1) p/ f3 = 852Hz
+int v32; //v(i-2) p/ f3 = 852Hz
+
+int v40; //v(i) p/ f4 = 941Hz
+int v41; //v(i-1) p/ f4 = 941Hz
+int v42; //v(i-2) p/ f4 = 941Hz
+
+int v50; //v(i) p/ f5 = 1209Hz
+int v51; //v(i-1) p/ f5 = 1209Hz
+int v52; //v(i-2) p/ f5 = 1209Hz
+
+int v60; //v(i) p/ f6 = 1336Hz
+int v61; //v(i-1) p/ f6 = 1336Hz
+int v62; //v(i-2) p/ f6 = 1336Hz
+
+int v70; //v(i) p/ f7 = 1477Hz
+int v71; //v(i-1) p/ f7 = 1477Hz
+int v72; //v(i-2) p/ f7 = 1477Hz
 
 // Define as tarefas
 void TaskPrincipal(void *pvParameters);
@@ -31,6 +82,9 @@ void TaskLerChave(void *pvParameters);
 SemaphoreHandle_t mtxSerial;
 
 void setup() {
+  pinMode(sirene, OUTPUT);
+  pinMode(portaRele, OUTPUT);
+  
   // Interrupções do Timer 1 a cada 278 useg -> T/2 de 1,8KHz
   Timer1.initialize(125);
   Timer1.attachInterrupt(LerSinalDTMF);
@@ -47,6 +101,8 @@ void setup() {
       xSemaphoreGive(mtxSerial); // Semáforo livre
     }
   }
+
+  digitalWrite(sirene, HIGH);
 }
 
 // Deixa vazio
@@ -77,33 +133,49 @@ void TaskPrincipal(void *pvParameters) {
         estado = tecla == '2' ? 3 : 4;
       } else {
         if(estado == 3) {
-          switch(tecla) {
-            case '2':
-              // Ligar lâmpada
-              break;
-            case '3':
-              // Desligar lâmpada
-              break;
-            case '4':
-              // Acionar o relé
-              break;
-            case '5':
-              // Desligar o relé
-              break;
-            case '6':
-              // Armar alarme
-              break;
-            case '7':
-              // Desarmar alarme
-              break;
-            case '8':
-              // Ligar sirene
-              break;
-            case '9':
-              //Desligar sirene
-              break;
-            default:
-              break; 
+          if (xSemaphoreTake(mtxSerial,(TickType_t)5) == pdTRUE) {
+            switch(tecla) {
+              case '2':
+                Serial.println('LAMPADA LIGADA');
+                break;
+              case '3':
+                // Desligar lâmpada
+                Serial.println('LAMPADA DESLIGADA');
+                break;
+              case '4':
+                // Acionar o led
+                Serial.println('RELÉ LIGADO');
+                digitalWrite(portaRele,HIGH);
+                break;
+              case '5':
+                // Desligar o led
+                Serial.println('RELÉ DESLIGADO');
+                digitalWrite(portaRele,LOW);
+                break;
+              case '6':
+                // Armar alarme
+                Serial.println('ALARME LIGADO');
+                alarme = true;
+                break;
+              case '7':
+                // Desarmar alarme
+                Serial.println('ALARME DESLIGADO');
+                alarme = false;
+                digitalWrite(sirene,HIGH);
+                break;
+              case '8':
+                digitalWrite(sirene,LOW);
+                Serial.println('SIRENE LIGADA');
+                break;
+              case '9':
+                //Desligar sirene
+                digitalWrite(sirene,HIGH);
+                Serial.println('SIRENE DESLIGADA');
+                break;
+              default:
+                break; 
+            }
+            xSemaphoreGive(mtxSerial); // Após utilizar, libera semáforo
           }
         }
       }
@@ -117,46 +189,6 @@ void TaskPrincipal(void *pvParameters) {
 
 void TaskGoertzel(void *pvParameters) {
   (void) pvParameters;
-
-  // Coeficientes do Algoritmo de Goertzel para cada uma das
-  // 7 frequências do sinal DTMF, com uma
-  // frequência de amostragem fs = 8000Hz
-  byte c1 = 219; // 2*cos(2*pi*697/fs)*128
-  byte c2 = 211; // 2*cos(2*pi*770/fs)*128
-  byte c3 = 201; // 2*cos(2*pi*852/fs)*128
-  byte c4 = 189; // 2*cos(2*pi*941/fs)*128
-  byte c5 = 149; // 2*cos(2*pi*1209/fs)*128
-  byte c6 = 128; // 2*cos(2*pi*1336/fs)*128
-  byte c7 = 102; // 2*cos(2*pi*1477/fs)*128
-  
-  // Variáveis das iterações
-  int v10; //v(i) p/ f1 = 697Hz
-  int v11; //v(i-1) p/ f1 = 697Hz
-  int v12; //v(i-2) p/ f1 = 697Hz
-  
-  int v20; //v(i) p/ f2 = 770Hz
-  int v21; //v(i-1) p/ f2 = 770Hz
-  int v22; //v(i-2) p/ f2 = 770Hz
-
-  int v30; //v(i) p/ f3 = 852Hz
-  int v31; //v(i-1) p/ f3 = 852Hz
-  int v32; //v(i-2) p/ f3 = 852Hz
-  
-  int v40; //v(i) p/ f4 = 941Hz
-  int v41; //v(i-1) p/ f4 = 941Hz
-  int v42; //v(i-2) p/ f4 = 941Hz
-
-  int v50; //v(i) p/ f5 = 1209Hz
-  int v51; //v(i-1) p/ f5 = 1209Hz
-  int v52; //v(i-2) p/ f5 = 1209Hz
-
-  int v60; //v(i) p/ f6 = 1336Hz
-  int v61; //v(i-1) p/ f6 = 1336Hz
-  int v62; //v(i-2) p/ f6 = 1336Hz
-  
-  int v70; //v(i) p/ f7 = 1477Hz
-  int v71; //v(i-1) p/ f7 = 1477Hz
-  int v72; //v(i-2) p/ f7 = 1477Hz
 
   // Variáveis auxiliares para as iterações
   byte i;
@@ -293,6 +325,7 @@ void TaskGoertzel(void *pvParameters) {
       tecla = teclado[maiorLinhaIndice][maiorColunaIndice];
       flagGoertzel = false;
     }
+    
     vTaskDelay(200/portTICK_PERIOD_MS); // Tarefa instanciada a cada 200 mseg
   }
 }
@@ -300,9 +333,34 @@ void TaskGoertzel(void *pvParameters) {
 void TaskLerChave(void *pvParameters) {
   (void) pvParameters;
 
+  int temperatura;
+  bool sinalChaveJanela;
+  bool sinalChavePorta;
+  byte contador = 1;
+  
   for (;;)
   {
-    vTaskDelay(200/portTICK_PERIOD_MS); // Tarefa instanciada a cada 200 mseg
+    sinalChaveJanela = (digitalRead(chaveJanela) == 0) ;
+    sinalChavePorta = (digitalRead(chavePorta) == 0);
+
+    if(contador == 8) {
+      temperatura = (analogRead(chavePorta)/16)-16;
+      contador = 1;
+    }    
+
+    if((sinalChaveJanela || sinalChavePorta) && alarme) {
+      digitalWrite(sirene,LOW);
+    }
+
+    if (xSemaphoreTake(mtxSerial,(TickType_t)5) == pdTRUE) {
+      Serial.print("Temperatura: ");
+      Serial.println(temperatura);
+      xSemaphoreGive(mtxSerial); // Após utilizar, libera semáforo
+    }
+
+    contador++;
+    
+    vTaskDelay(150/portTICK_PERIOD_MS); // Tarefa instanciada a cada 200 mseg
   }
 }
 
