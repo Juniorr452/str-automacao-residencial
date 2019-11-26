@@ -12,18 +12,13 @@ byte estado = 0;
 int tempo10 = 0;
 bool alarme = false;
 
-
-// Portas
-char portaSinal = 'A0';
-char portaTemperatura = 'A1';
-
-byte portaRele = 13;
-byte sirene = 8;
+byte portaRele = 4;
+byte sirene = 5;
 
 //chaves
 
-byte chaveJanela = 9;
-byte chavePorta = 10;
+byte chaveJanela = 2;
+byte chavePorta = 3;
 
 // =============================== TECLADO
 char teclado[4][3] = {
@@ -84,6 +79,10 @@ SemaphoreHandle_t mtxSerial;
 void setup() {
   pinMode(sirene, OUTPUT);
   pinMode(portaRele, OUTPUT);
+  pinMode(chaveJanela, INPUT_PULLUP);
+  pinMode(chavePorta, INPUT_PULLUP);
+
+  Serial.begin(9600);
   
   // Interrupções do Timer 1 a cada 278 useg -> T/2 de 1,8KHz
   Timer1.initialize(125);
@@ -114,72 +113,82 @@ void TaskPrincipal(void *pvParameters) {
 
   for (;;)
   {
-    if(tecla == '0') {
-      if(estado != 0) {
-        tempo10++;
-  
-        if(tempo10 == 50) {
-          estado = 0;
-          tempo10 = 0;
+    if (xSemaphoreTake(mtxSerial,(TickType_t)5) == pdTRUE) {
+      if(tecla == '0') {
+        if(estado != 0) {
+          tempo10++;
+    
+          if(tempo10 == 50) {
+            Serial.println("RESETANDO O ESTADO");
+            estado = 0;
+            tempo10 = 0;
+          }
         }
-      }
-    } else {
-      tempo10 = 0;
-      if(estado == 0) {
-        estado = tecla == '#' ? 1 : 4;
-      } else if(estado == 1) {
-        estado = tecla == '4' ? 2 : 4;
-      } else if(estado == 2) {
-        estado = tecla == '2' ? 3 : 4;
       } else {
-        if(estado == 3) {
-          if (xSemaphoreTake(mtxSerial,(TickType_t)5) == pdTRUE) {
-            switch(tecla) {
-              case '2':
-                Serial.println('LAMPADA LIGADA');
-                break;
-              case '3':
-                // Desligar lâmpada
-                Serial.println('LAMPADA DESLIGADA');
-                break;
-              case '4':
-                // Acionar o led
-                Serial.println('RELÉ LIGADO');
-                digitalWrite(portaRele,HIGH);
-                break;
-              case '5':
-                // Desligar o led
-                Serial.println('RELÉ DESLIGADO');
-                digitalWrite(portaRele,LOW);
-                break;
-              case '6':
-                // Armar alarme
-                Serial.println('ALARME LIGADO');
-                alarme = true;
-                break;
-              case '7':
-                // Desarmar alarme
-                Serial.println('ALARME DESLIGADO');
-                alarme = false;
-                digitalWrite(sirene,HIGH);
-                break;
-              case '8':
-                digitalWrite(sirene,LOW);
-                Serial.println('SIRENE LIGADA');
-                break;
-              case '9':
-                //Desligar sirene
-                digitalWrite(sirene,HIGH);
-                Serial.println('SIRENE DESLIGADA');
-                break;
-              default:
-                break; 
+        tempo10 = 0;
+        if(estado == 0) {
+          estado = tecla == '#' ? 1 : 4;
+          Serial.print("ESTADO: ");
+          Serial.println(estado);
+        } else if(estado == 1) {
+          estado = tecla == '4' ? 2 : 4;
+          Serial.print("ESTADO: ");
+          Serial.println(estado);
+        } else if(estado == 2) {
+          estado = tecla == '2' ? 3 : 4;
+          Serial.print("ESTADO: ");
+          Serial.println(estado);
+          Serial.println("SENHA ACEITA");
+        } else {
+          if(estado == 3) {
+              switch(tecla) {
+                case '2':
+                  Serial.println("LAMPADA LIGADA");
+                  break;
+                case '3':
+                  // Desligar lâmpada
+                  Serial.println("LAMPADA DESLIGADA");
+                  break;
+                case '4':
+                  // Acionar o led
+                  Serial.println("RELÉ LIGADO");
+                  digitalWrite(portaRele,HIGH);
+                  break;
+                case '5':
+                  // Desligar o led
+                  Serial.println("RELÉ DESLIGADO");
+                  digitalWrite(portaRele,LOW);
+                  break;
+                case '6':
+                  // Armar alarme
+                  Serial.println("ALARME LIGADO");
+                  alarme = true;
+                  break;
+                case '7':
+                  // Desarmar alarme
+                  Serial.println("ALARME DESLIGADO");
+                  alarme = false;
+                  digitalWrite(sirene,HIGH);
+                  break;
+                case '8':
+                  // SIRENE LIGADA
+                  digitalWrite(sirene,LOW);
+                  Serial.println("SIRENE LIGADA");
+                  break;
+                case '9':
+                  //Desligar sirene
+                  digitalWrite(sirene,HIGH);
+                  Serial.println("SIRENE DESLIGADA");
+                  break;
+                default:
+                  break;
             }
-            xSemaphoreGive(mtxSerial); // Após utilizar, libera semáforo
           }
         }
       }
+      xSemaphoreGive(mtxSerial); // Após utilizar, libera semáforo
     }
+    
  
     tecla = '0';
     vTaskDelay(200/portTICK_PERIOD_MS); // Tarefa instanciada a cada 200 mseg
@@ -323,6 +332,8 @@ void TaskGoertzel(void *pvParameters) {
       }
 
       tecla = teclado[maiorLinhaIndice][maiorColunaIndice];
+      Serial.print("TECLA: ");
+      Serial.println(tecla);
       flagGoertzel = false;
     }
     
@@ -334,28 +345,28 @@ void TaskLerChave(void *pvParameters) {
   (void) pvParameters;
 
   int temperatura;
-  bool sinalChaveJanela;
-  bool sinalChavePorta;
+  byte sinalChaveJanela;
+  byte sinalChavePorta;
   byte contador = 1;
   
   for (;;)
   {
-    sinalChaveJanela = (digitalRead(chaveJanela) == 0) ;
-    sinalChavePorta = (digitalRead(chavePorta) == 0);
+    sinalChaveJanela = digitalRead(chaveJanela) ;
+    sinalChavePorta = digitalRead(chavePorta);
 
     if(contador == 8) {
-      temperatura = (analogRead(chavePorta)/16)-16;
+      temperatura = (analogRead(A1)/16)-16;
       contador = 1;
+      if (xSemaphoreTake(mtxSerial,(TickType_t)5) == pdTRUE) {
+        Serial.print("Temperatura: ");
+        Serial.println(temperatura);
+        xSemaphoreGive(mtxSerial); // Após utilizar, libera semáforo
+      }
     }    
 
-    if((sinalChaveJanela || sinalChavePorta) && alarme) {
+    if((sinalChaveJanela == LOW || sinalChavePorta == LOW) && alarme) {
+      Serial.println("JANELA/PORTA ABERTA");
       digitalWrite(sirene,LOW);
-    }
-
-    if (xSemaphoreTake(mtxSerial,(TickType_t)5) == pdTRUE) {
-      Serial.print("Temperatura: ");
-      Serial.println(temperatura);
-      xSemaphoreGive(mtxSerial); // Após utilizar, libera semáforo
     }
 
     contador++;
@@ -366,7 +377,7 @@ void TaskLerChave(void *pvParameters) {
 
 // Tarefa de leitura do sinal DTMF
 void LerSinalDTMF() {
-  byte sinal = (byte) (analogRead(portaSinal) / 4);
+  byte sinal = (byte) (analogRead(A0) / 4);
 
   if(flagSinal) {
     if(indiceAtual < 150) {
